@@ -34,7 +34,7 @@ public class ProcessModelsResource {
 	private DefinitionService definitionService = null;
 	private ProcessService processService = null;
 	
-	private Map<String, String> mapaEquivalenciasClasesPrimitivas = new HashMap<String, String>();
+	private Map<String, String> primitiveClassesTranslatorMap = new HashMap<String, String>();
 
 	public ProcessModelsResource(KieServerRegistry kieServerRegistry, DefinitionService definitionService, ProcessService processService) {
 		this.kieServerRegistry = kieServerRegistry;
@@ -43,11 +43,12 @@ public class ProcessModelsResource {
 	}
 	
 	{
-		mapaEquivalenciasClasesPrimitivas.put("String", "java.lang.String");
-		mapaEquivalenciasClasesPrimitivas.put("Boolean", "java.lang.Boolean");
-		mapaEquivalenciasClasesPrimitivas.put("Integer", "java.lang.Integer");
-		mapaEquivalenciasClasesPrimitivas.put("Float", "java.lang.Float");
-		mapaEquivalenciasClasesPrimitivas.put("Object", "java.lang.Object");
+		// Adding primitive types as defined in the BPMN file and their equivalent types in Java.
+		primitiveClassesTranslatorMap.put("String", "java.lang.String");
+		primitiveClassesTranslatorMap.put("Boolean", "java.lang.Boolean");
+		primitiveClassesTranslatorMap.put("Integer", "java.lang.Integer");
+		primitiveClassesTranslatorMap.put("Float", "java.lang.Float");
+		primitiveClassesTranslatorMap.put("Object", "java.lang.Object");
 	}
 
 	@POST
@@ -57,50 +58,44 @@ public class ProcessModelsResource {
 			containerId, @PathParam("process-model-id") String
 			processModelId, @PathParam("version") String version, String payload) {
 
-		// Find kie-container associated with processModelVersion.
+		// Retrieving ClassLoader from kieContainerInstance.
 		KieContainerInstance kieContainerInstance = kieServerRegistry.getContainer(containerId);
 		ClassLoader kieContainerClassLoader = kieContainerInstance.getKieContainer().getClassLoader();
-		Set<Class<?>> classes = kieContainerInstance.getExtraClasses();
 		Map<String, Object> instanceInputs = new HashMap<String, Object>();
 
-
-		System.out.println("Comenzamos a iterar clases extra");
-		for (Class<?> class1 : classes) {
-			System.out.println("Clase extra: " + class1.getPackageName() + "." + class1.getName());
-		}
-		System.out.println("Fin iteración clases extra");
-
 		ObjectMapper mapper = new ObjectMapper();
+		
 		try {
+			// Retrieving process definition to introspect explicitely-defined variables.
 			ProcessDefinition def = definitionService.getProcessDefinition(containerId, processModelId);
 			Map<String, String> processDefinitionVariables = def.getProcessVariables();
-
-			for (Entry<String, String> variableDefinition : processDefinitionVariables.entrySet()) {
-				System.out.println("AAA VAR: " + variableDefinition.getKey() + "  ----  " + variableDefinition.getValue());
-			}
 
 			JsonNode rootNode = mapper.readTree(payload);
 			
 			Iterator<Entry<String, JsonNode>> iter = rootNode.fields();
 			
-			System.out.println("Inicio de la iteración del payload de entrada");
+			System.out.println("Starting input payload iteration");
 			while (iter.hasNext()) {
 			    Entry<String, JsonNode> fieldSet = iter.next();
 				
 				try {
-					String nombreClaseCampo = resolveClassName(processDefinitionVariables.get(fieldSet.getKey()));
-					String nombreCampo = fieldSet.getKey();
-					String valorCampo = fieldSet.getValue().toString();
-					System.out.println("Se serializará el campo " + nombreCampo + " con el valor " + valorCampo + " a la clase " + nombreClaseCampo);
+					// Class name will be 
+					//    a) The FQCN as defined in the BPMN, 
+					//    b) the primitive type with its FQCN retrieved from primitiveClassesTranslatorMap, or 
+					//    c) java.lang.Object if variable is not defined in the BPMN.
+					String fieldClassName = resolveClassName(processDefinitionVariables.get(fieldSet.getKey()));
+					String fieldName = fieldSet.getKey();
+					String fieldValue = fieldSet.getValue().toString();
+					System.out.println("About serializing " + fieldName + " with value " + fieldValue + " regarding class " + fieldClassName);
 					
-					instanceInputs.put(nombreCampo, mapper.readValue(valorCampo, Class.forName(nombreClaseCampo, true, kieContainerClassLoader)));
+					instanceInputs.put(fieldName, mapper.readValue(fieldValue, Class.forName(fieldClassName, true, kieContainerClassLoader)));
 				} catch (ClassNotFoundException e) {
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
 			}
 			
-			System.out.println("Final de la iteración del payload de entrada");
+			System.out.println("End of input payload iteration");
 
 		} catch (JsonMappingException e) {
 			// TODO Auto-generated catch block
@@ -114,10 +109,17 @@ public class ProcessModelsResource {
 		System.out.println("Process instance " + processInstanceId + " started");
 		return Response.status(Status.CREATED).build();
 	}
-	
+
+	/**
+	 * 
+	 * @param initialClassName
+	 * @return the class name that will be used to create the instance of an object with reflection.
+	 */
 	private String resolveClassName(String initialClassName) {
-		if(mapaEquivalenciasClasesPrimitivas.get(initialClassName) != null)
-			return mapaEquivalenciasClasesPrimitivas.get(initialClassName);
+		if(initialClassName == null)
+			return "java.lang.Object";
+		else if(primitiveClassesTranslatorMap.get(initialClassName) != null)
+			return primitiveClassesTranslatorMap.get(initialClassName);
 		else
 			return initialClassName;	
 	}
