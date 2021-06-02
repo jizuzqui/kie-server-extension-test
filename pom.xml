@@ -93,6 +93,12 @@
 			<version>${kie.version}</version>
 			<scope>provided</scope>
 		</dependency>
+		
+		<dependency>
+			<groupId>com.bbva.ether.bpmaas</groupId>
+			<artifactId>ether-bpmaas-marshalling-utils</artifactId>
+			<version>0.0.1-SNAPSHOT</version>
+		</dependency>
 	</dependencies>
 
 	<build>
